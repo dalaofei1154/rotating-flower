@@ -1,0 +1,68 @@
+name: Windows candidate fix validation
+on:
+  push:
+    branches: ['codex/windows-ci-20261116']
+    paths: ['windows-ci-source-fix1.zip', '.github/workflows/windows-fix1.yml']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify and extract exact candidate snapshot
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          archive = pathlib.Path('windows-ci-source-fix1.zip')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == '5216504d2bfaec379f037b997dc8c9a5851830d56e5b3625aea9a9abcd5150a7'
+          with zipfile.ZipFile(archive) as z:
+              z.extractall('candidate')
+          root = pathlib.Path('candidate')
+          manifest = json.loads((root / 'CI-SOURCE.json').read_text())
+          for name, digest in manifest.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          print('Verified', len(manifest), 'source files')
+      - name: Bridge and platform tests
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1/integrated -p 'test_*.py' -v
+      - name: Windows installation and native launchers
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_windows*.py' -v
+      - name: Package integrity
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_package_windows.py' -v
+      - name: DSH configuration
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_dsh_setup.py' -v
+      - name: Packaged background process
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_packaged_bridge_runtime.py' -v
+      - name: DSH observer
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: node --test m1/dsh_plugin/test-observer.mjs
+      - name: Build candidate without publishing
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python m1/package_windows.py --output dist/windows-preview
