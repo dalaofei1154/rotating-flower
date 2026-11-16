@@ -2,7 +2,7 @@ name: Windows candidate validation
 on:
   push:
     branches: ['codex/windows-ci-20261116']
-    paths: ['windows-ci-source.zip']
+    paths: ['windows-ci-source.zip', '.github/workflows/windows-candidate.yml']
 permissions:
   contents: read
 jobs:
@@ -39,23 +39,30 @@ jobs:
               assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
           print('Verified', len(manifest), 'source files')
       - name: Bridge and platform tests
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python -m unittest discover -s m1/integrated -p 'test_*.py' -v
       - name: Windows installation and native launchers
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python -m unittest discover -s m1 -p 'test_windows*.py' -v
       - name: Package integrity
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python -m unittest discover -s m1 -p 'test_package_windows.py' -v
       - name: DSH configuration
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python -m unittest discover -s m1 -p 'test_dsh_setup.py' -v
       - name: Packaged background process
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python -m unittest discover -s m1 -p 'test_packaged_bridge_runtime.py' -v
       - name: DSH observer
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: node --test m1/dsh_plugin/test-observer.mjs
       - name: Build candidate without publishing
+        if: ${{ !cancelled() }}
         working-directory: candidate
         run: python m1/package_windows.py --output dist/windows-preview
