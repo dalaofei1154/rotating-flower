@@ -1,0 +1,61 @@
+name: Windows candidate validation
+on:
+  push:
+    branches: ['codex/windows-ci-20261116']
+    paths: ['windows-ci-source.zip']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify and extract exact candidate snapshot
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          archive = pathlib.Path('windows-ci-source.zip')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == 'df8a5ab6876c73382eaea64a3c21fa228b0a089b65905f8a633c983586621f4e'
+          with zipfile.ZipFile(archive) as z:
+              z.extractall('candidate')
+          root = pathlib.Path('candidate')
+          manifest = json.loads((root / 'CI-SOURCE.json').read_text())
+          for name, digest in manifest.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          print('Verified', len(manifest), 'source files')
+      - name: Bridge and platform tests
+        working-directory: candidate
+        run: python -m unittest discover -s m1/integrated -p 'test_*.py' -v
+      - name: Windows installation and native launchers
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_windows*.py' -v
+      - name: Package integrity
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_package_windows.py' -v
+      - name: DSH configuration
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_dsh_setup.py' -v
+      - name: Packaged background process
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_packaged_bridge_runtime.py' -v
+      - name: DSH observer
+        working-directory: candidate
+        run: node --test m1/dsh_plugin/test-observer.mjs
+      - name: Build candidate without publishing
+        working-directory: candidate
+        run: python m1/package_windows.py --output dist/windows-preview
