@@ -1,0 +1,86 @@
+name: Windows Qoder candidate validation
+on:
+  push:
+    branches: ['codex/windows-ci-20261116']
+    paths: ['windows-qoder-source.zip', '.github/workflows/windows-qoder.yml']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify and extract exact candidate snapshot
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          archive = pathlib.Path('windows-qoder-source.zip')
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == 'de530d10ce23501da0c86a7a8663f1c5b625f6dfb3bf4a33ce9571e9868bc53c'
+          with zipfile.ZipFile(archive) as z:
+              z.extractall('candidate')
+          root = pathlib.Path('candidate')
+          manifest = json.loads((root / 'CI-SOURCE.json').read_text())
+          for name, digest in manifest.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          print('Verified', len(manifest), 'source files')
+      - name: Bridge and platform tests
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1/integrated -p 'test_*.py' -v
+      - name: Windows installation and native launchers
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_windows*.py' -v
+      - name: Package integrity
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_package_windows.py' -v
+      - name: DSH configuration
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_dsh_setup.py' -v
+      - name: Packaged background process
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python -m unittest discover -s m1 -p 'test_packaged_bridge_runtime.py' -v
+      - name: DSH observer
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: node --test m1/dsh_plugin/test-observer.mjs
+      - name: Build candidate without publishing
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python m1/package_windows.py --output dist/windows-preview
+      - name: Compare rebuilt package with the exact supplied ZIP
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          original = pathlib.Path('input-package.zip')
+          assert hashlib.sha256(original.read_bytes()).hexdigest() == '2d382cccd3bfd6780fa6882a5d593667bb2b5a5302b25003555c100ae49266df'
+          rebuilt, = pathlib.Path('dist/windows-preview').glob('*.zip')
+          with zipfile.ZipFile(original) as a, zipfile.ZipFile(rebuilt) as b:
+              assert sorted(a.namelist()) == sorted(b.namelist())
+              for name in a.namelist():
+                  assert a.read(name) == b.read(name), name
+              root = a.namelist()[0].split('/')[0] + '/'
+              manifest = json.loads(a.read(root + 'manifest.json'))
+              for name, digest in manifest['files'].items():
+                  assert hashlib.sha256(a.read(root + name)).hexdigest() == digest, name
+          print('Supplied package matches Windows rebuilt payload, all manifest hashes verified')
