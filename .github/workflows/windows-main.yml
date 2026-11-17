@@ -1,0 +1,89 @@
+name: Windows main integration validation
+on:
+  push:
+    branches: ['codex/windows-ci-20261116']
+    paths: ['windows-main-source.zip', '.github/workflows/windows-main.yml']
+permissions:
+  contents: read
+jobs:
+  software:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, python: '3.11'}
+          - {os: windows-latest, python: '3.13'}
+          - {os: ubuntu-22.04, python: '3.11'}
+          - {os: ubuntu-22.04, python: '3.13'}
+          - {os: macos-latest, python: '3.9'}
+          - {os: macos-latest, python: '3.13'}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify exact integration snapshot
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          source = pathlib.Path('windows-main-source.zip')
+          assert hashlib.sha256(source.read_bytes()).hexdigest() == '0d07729cf7f465e816c4cc90fb0b2c149ca086e85ddd3a1d9546d45ac93bba23'
+          with zipfile.ZipFile(source) as z:
+              z.extractall('candidate')
+          root = pathlib.Path('candidate')
+          manifest = json.loads((root / 'CI-SOURCE.json').read_text())
+          assert manifest['source_commit'] == 'adbbba3945b39d738f1bd00d7c6bae4ac4d47c45'
+          for name, digest in manifest['files'].items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          print('Verified', len(manifest['files']), 'files from', manifest['source_commit'])
+      - name: Bridge and platform regressions
+        working-directory: candidate
+        run: python -B -m unittest discover -s m1/integrated -p 'test_*.py'
+      - name: Installer, DSH, launchers and package regressions
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            python -B -m unittest discover -s m1 -p 'test_*.py'
+          else
+            python -B -m unittest discover -s m1 -p 'test_windows*.py'
+            python -B -m unittest discover -s m1 -p 'test_dsh*.py'
+            python -B -m unittest discover -s m1 -p 'test_package_windows.py'
+            python -B -m unittest discover -s m1 -p 'test_packaged_bridge_runtime.py'
+          fi
+      - name: DSH observer regressions
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: node --test m1/dsh/*.test.mjs
+      - name: Rebuild exact preview payload without publishing
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: python m1/package_windows.py --output dist/windows-preview --source-commit adbbba3945b39d738f1bd00d7c6bae4ac4d47c45
+      - name: Compare rebuilt package with supplied package
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        shell: python
+        run: |
+          import hashlib, json, pathlib, zipfile
+          original = pathlib.Path('input-package.zip')
+          assert hashlib.sha256(original.read_bytes()).hexdigest() == 'a2a6e0f06239bb54e576e7738da93656b3c3e811464c4582634a3e329195187d'
+          rebuilt, = pathlib.Path('dist/windows-preview').glob('*.zip')
+          with zipfile.ZipFile(original) as a, zipfile.ZipFile(rebuilt) as b:
+              assert sorted(a.namelist()) == sorted(b.namelist())
+              for name in a.namelist():
+                  assert a.read(name) == b.read(name), name
+              prefix = a.namelist()[0].split('/')[0] + '/'
+              manifest = json.loads(a.read(prefix + 'manifest.json'))
+              for name, digest in manifest['files'].items():
+                  assert hashlib.sha256(a.read(prefix + name)).hexdigest() == digest, name
+          print('All rebuilt package entries and manifest hashes match')
