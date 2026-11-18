@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from windows_setup import read_status_snapshot
 import package_windows
 import package_workbuddy_integrated
 
@@ -49,9 +50,10 @@ class PackagedBridgeRuntimeTests(unittest.TestCase):
                 observed = set()
                 while time.monotonic() < deadline and child.poll() is None:
                     if status.exists():
-                        data = json.loads(status.read_text(encoding='utf-8'))
-                        observed.add(status.stat().st_mtime_ns)
+                        data = read_status_snapshot(status)
+                        observed.add(data['updated_at'])
                         self.assertTrue(data['dry_run'])
+                        # Dry-run never opens USB. This checks the reported mode only.
                         self.assertFalse(data['device_connected'])
                         if len(observed) >= 2:
                             break

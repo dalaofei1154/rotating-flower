@@ -15,6 +15,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'integrated'))
+from platform_support import read_status_snapshot
 from source_config import CHOICES, enabled_sources
 from claude_code_adapter import claude_root as resolve_claude_root
 from dsh_setup import DshPluginChange
@@ -398,7 +399,7 @@ def status(root):
               'settings': config['settings'] if config else None, 'status_current': False, 'sources': {}}
     try:
         receipt = json.loads((root / 'run.json').read_text(encoding='utf-8'))
-        state = json.loads((root / 'status.json').read_text(encoding='utf-8'))
+        state = read_status_snapshot(root / 'status.json')
         age = time.time() - state['updated_at']
         current = (result['running'] and state.get('launch_id') == receipt['launch_id'] and
                    -2 <= age < 8 and state['updated_at'] >= receipt['started_at'])
@@ -407,6 +408,8 @@ def status(root):
                           launch_id=receipt['launch_id'], started_at=receipt['started_at'],
                           motor=state.get('motor'), light=state.get('light'),
                           device_count=state.get('device_count', 0), dry_run=state.get('dry_run'))
+    except PermissionError as exc:
+        result['status_read_error'] = str(exc)
     except (OSError, ValueError, TypeError, KeyError):
         pass
     return result
@@ -437,6 +440,8 @@ def wait_started(root, seconds=12, *, started_after=None):
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
         if time.monotonic() >= deadline:
+            if 'status_read_error' in report:
+                print(report['status_read_error'], file=sys.stderr)
             print('后台启动检查未通过；请查看日志后运行检查。', file=sys.stderr)
             return 3
         time.sleep(.3)

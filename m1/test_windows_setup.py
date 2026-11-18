@@ -258,6 +258,24 @@ class WindowsSetupTests(unittest.TestCase):
                 setup.write_json(root / 'status.json', state)
                 self.assertFalse(setup.status(root)['status_current'])
 
+    def test_status_open_retries_and_reports_persistent_denial(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup.write_json(root / 'run.json', {'launch_id': 'id', 'started_at': 95})
+            path = root / 'status.json'
+            setup.write_json(path, {'launch_id': 'id', 'updated_at': 99})
+            denied = PermissionError(13, 'snapshot busy', str(path))
+            with patch.object(setup, 'runner_active', return_value=True), \
+                 patch.object(setup.time, 'time', return_value=100), \
+                 patch('platform_support.open_read_shared', side_effect=denied) as read:
+                report = setup.status(root)
+                self.assertFalse(report['status_current'])
+                self.assertIn('snapshot busy', report['status_read_error'])
+                self.assertEqual(read.call_count, 3)
+                with path.open('rb') as stream:
+                    read.side_effect = [denied, stream]
+                    self.assertTrue(setup.status(root)['status_current'])
+
     def test_runner_retries_then_releases_lock_when_child_exits(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

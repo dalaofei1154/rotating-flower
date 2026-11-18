@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import errno
+import json
 from functools import lru_cache
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 
 
 def is_windows() -> bool:
@@ -56,6 +58,18 @@ def open_read_shared(path: Path):
     except BaseException:
         os.close(fd)
         raise
+
+
+def read_status_snapshot(path: Path):
+    """Read one complete publication, allowing the bridge to replace it."""
+    for attempt in range(3):
+        try:
+            with open_read_shared(path) as stream:
+                return json.load(stream)
+        except PermissionError:
+            if attempt == 2:
+                raise
+            time.sleep(0.02)
 
 
 @lru_cache(maxsize=1)

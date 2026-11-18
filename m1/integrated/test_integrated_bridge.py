@@ -1,5 +1,5 @@
 # Selected test changes adapted from Bella PR #5, e698b752.
-# See docs/bella-pr5-integration-proposal-20261116.md for scope and provenance.
+# See docs/windows-contributions.md for scope and provenance.
 import unittest
 from unittest.mock import Mock, patch
 from contextlib import redirect_stdout, redirect_stderr
