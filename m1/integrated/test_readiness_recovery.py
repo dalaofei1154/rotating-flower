@@ -1,5 +1,5 @@
 # Selected test changes adapted from Bella PR #5, e698b752.
-# See docs/bella-pr5-integration-proposal-20261116.md for scope and provenance.
+# See docs/windows-contributions.md for scope and provenance.
 """First-use recovery with real temporary metadata; no desktop or USB access."""
 from datetime import datetime, timezone
 import json

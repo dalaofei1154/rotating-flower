@@ -300,6 +300,20 @@ def combine_sources(sources):
     return motor,any(s['light'] for s in healthy)
 
 
+def publish_status(path, status):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Dry-run and hardware processes may share the same destination.
+    tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    tmp.write_text(json.dumps(status, indent=2) + '\n', encoding='utf-8')
+    for delay in (0.02, 0.04):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    tmp.replace(path)
+
+
 def main(argv=None):
     if is_windows():
         for stream in (sys.stdout,sys.stderr):
@@ -348,6 +362,7 @@ def main(argv=None):
     if 'claude' in enabled_sources(args.source):
         sources['claude']=RecoveringSource(lambda:ClaudeCodeSource(args.claude_root))
     flowers=FlowerGroup(args.port);previous=None;last_status=0
+    status_error = None
     once_deadline=time.monotonic()+5
     try:
         while running:
@@ -377,9 +392,16 @@ def main(argv=None):
                     status={'updated_at':now,'launch_id':args.launch_id,'source':args.source,
                             'sources':snapshots,'motor':command,'light':light,'dry_run':args.dry_run,
                             **flowers.status()}
-                    args.status_file.parent.mkdir(parents=True,exist_ok=True)
-                    tmp=args.status_file.with_suffix('.tmp')
-                    tmp.write_text(json.dumps(status,indent=2)+'\n',encoding='utf-8');tmp.replace(args.status_file)
+                    try:
+                        publish_status(args.status_file, status)
+                    except OSError as exc:
+                        if str(exc) != status_error:
+                            log(f'Status update delayed ({args.status_file}): {exc}')
+                        status_error = str(exc)
+                    else:
+                        if status_error is not None:
+                            log(f'Status updates resumed ({args.status_file})')
+                        status_error = None
                     last_status=now
             time.sleep(.3)
     finally:

@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from windows_setup import read_status_snapshot
 import package_windows
 import package_workbuddy_integrated
 
@@ -49,13 +50,16 @@ class PackagedBridgeRuntimeTests(unittest.TestCase):
                 observed = set()
                 while time.monotonic() < deadline and child.poll() is None:
                     if status.exists():
-                        data = json.loads(status.read_text(encoding='utf-8'))
-                        observed.add(status.stat().st_mtime_ns)
+                        data = read_status_snapshot(status)
+                        observed.add(data['updated_at'])
                         self.assertTrue(data['dry_run'])
+                        # Dry-run never opens USB. This checks the reported mode only.
                         self.assertFalse(data['device_connected'])
                         if len(observed) >= 2:
                             break
                     time.sleep(.05)
+                if sys.platform == 'win32' and relative.parts[0] == package_windows.NAME:
+                    self.check_held_windows_snapshot(child, status, root / 'child.log')
                 stop.write_text('stop', encoding='utf-8')
                 child.wait(timeout=10)
                 log.seek(0)
@@ -65,6 +69,23 @@ class PackagedBridgeRuntimeTests(unittest.TestCase):
                 if child.poll() is None:
                     child.kill()
                     child.wait(timeout=5)
+
+    def check_held_windows_snapshot(self, child, status, log_path):
+        # A normal Windows reader can deny delete-sharing. Hold it across a
+        # publication and require the same child to recover after release.
+        with status.open('rb') as held:
+            before = json.load(held)
+            deadline = time.monotonic() + 10
+            while 'Status update delayed' not in log_path.read_text(encoding='utf-8'):
+                self.assertIsNone(child.poll(), 'bridge exited during contention')
+                self.assertLess(time.monotonic(), deadline, 'no blocked publication observed')
+                time.sleep(.05)
+            self.assertEqual(read_status_snapshot(status), before)
+        deadline = time.monotonic() + 10
+        while read_status_snapshot(status)['updated_at'] <= before['updated_at']:
+            self.assertIsNone(child.poll(), 'bridge exited after handle release')
+            self.assertLess(time.monotonic(), deadline, 'status publication did not resume')
+            time.sleep(.05)
 
     def test_real_windows_package_imports_and_runs_background_loop(self):
         with tempfile.TemporaryDirectory(prefix='flower package ') as directory:
