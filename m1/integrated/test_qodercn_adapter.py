@@ -370,7 +370,7 @@ class SourceSelectionTests(unittest.TestCase):
         self.assertEqual(selection_for({'codex', 'qodercn'}), 'codex,qodercn')
         self.assertEqual(selection_for({'codex', 'workbuddy'}), 'both')
         self.assertEqual(selection_for({'codex', 'workbuddy', 'dsh'}), 'all')
-        self.assertEqual(selection_for(set(NAMES)), 'codex,workbuddy,dsh,qodercn')
+        self.assertEqual(selection_for(set(NAMES)), 'codex,workbuddy,dsh,qodercn,claude')
 
     def test_unknown_or_duplicate_sources_are_rejected(self):
         for value in ('nope', 'qodercn,nope', 'qodercn,qodercn', ''):

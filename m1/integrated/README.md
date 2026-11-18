@@ -28,3 +28,5 @@ python3 m1/package_workbuddy_integrated.py --output /tmp/flower-build --python-a
 The builder verifies the pinned Python SHA256 and packages only the runtime allowlist, installer and notices. The Python runtime retains its original licenses. Tests and local runtime data are excluded. The network entry [`install_unified_release.sh`](../install_unified_release.sh) pins the published ZIP's SHA256; update that pin only for an intentionally new release.
 
 The lower-level runtime defaults to WorkBuddy for historical compatibility. End users should use the installer, which detects Codex/WorkBuddy and saves the appropriate source. Do not run a second bridge against an installed service's USB port.
+
+Claude Code interactive CLI is available as an explicit source: `python m1/integrated/integrated_bridge.py --source claude --once` from the repository root. See [Claude Code notes](../../docs/claude-code.md) for config paths, approval/resume behavior, supported version and validation limits. Legacy `all` and `both` do not enable Claude.

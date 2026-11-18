@@ -1,7 +1,13 @@
 # Selected test changes adapted from Bella PR #5, e698b752.
 # See docs/bella-pr5-integration-proposal-20261116.md for scope and provenance.
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from contextlib import redirect_stdout, redirect_stderr
+import io
+import json
+from pathlib import Path
+import tempfile
+import integrated_bridge as bridge
 from integrated_bridge import Flower
 from integrated_bridge import select_outputs
 from state_reducer import RolloutSnapshot
@@ -64,6 +70,48 @@ class IntegrationStateTests(unittest.TestCase):
         snap['threads']['one']['archived']=True
         state,_=select_outputs(self.roots(),snap,[],100)
         self.assertEqual(state.motor_command,'STOP')
+
+
+class ClaudeBridgeCliTests(unittest.TestCase):
+    def run_once(self, source, root, factory):
+        output = io.StringIO()
+        argv = ['integrated_bridge.py', '--once', '--source', source, '--claude-root', str(root)]
+        with patch('sys.argv', argv), patch.object(bridge, 'ClaudeCodeSource', factory, create=True), \
+             patch.object(bridge.time, 'monotonic', side_effect=[0, 6]), \
+             patch.object(bridge.time, 'sleep'), patch.object(bridge.signal, 'signal'), \
+             redirect_stdout(output), redirect_stderr(io.StringIO()):
+            try:
+                bridge.main()
+            except SystemExit as exc:
+                self.fail(f'Claude source CLI was rejected: {exc}')
+        return json.loads(next(line for line in output.getvalue().splitlines() if line.startswith('{')))
+
+    def test_once_uses_explicit_claude_root_and_never_touches_usb(self):
+        state = {'healthy': True, 'readiness': 'ready', 'error': None, 'motor': 'RUN HIGH',
+                 'light': True, 'working_threads': ['running'], 'waiting_threads': ['waiting'],
+                 'pending_questions': 1}
+        adapter = Mock()
+        adapter.poll.return_value = state
+        factory = Mock(return_value=adapter)
+        with tempfile.TemporaryDirectory() as temp, patch.object(bridge.Flower, 'connect') as connect:
+            root = Path(temp) / 'Claude root with spaces'
+            snapshot = self.run_once('claude', root, factory)
+        self.assertEqual(snapshot, {'motor': 'RUN HIGH', 'light': True, 'sources': {'claude': state}})
+        factory.assert_called_once_with(root)
+        adapter.close.assert_called_once()
+        connect.assert_not_called()
+
+    def test_once_isolates_claude_initialization_failure_from_workbuddy(self):
+        factory = Mock(side_effect=ValueError('unsupported state'))
+        workbuddy = Mock()
+        workbuddy.poll.return_value = {'healthy': True, 'motor': 'RUN LOW', 'light': False}
+        with patch.object(bridge, 'WorkBuddyAdapter', return_value=workbuddy):
+            snapshot = self.run_once('workbuddy,claude', Path('unused'), factory)
+        self.assertEqual(snapshot['motor'], 'RUN LOW')
+        self.assertFalse(snapshot['light'])
+        self.assertFalse(snapshot['sources']['claude']['healthy'])
+        self.assertEqual(snapshot['sources']['claude']['readiness'], 'error')
+        workbuddy.close.assert_called_once()
 
 
 class FakePort:

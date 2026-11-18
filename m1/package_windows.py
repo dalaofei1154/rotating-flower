@@ -40,6 +40,8 @@ Python 下载：https://www.python.org/downloads/windows/
   py -3 -X utf8 app/windows_setup.py install --source workbuddy,dsh --dry-run
   py -3 -X utf8 app/windows_setup.py install --source all --dry-run
   py -3 -X utf8 app/windows_setup.py install --source qodercn --dry-run
+  py -3 -X utf8 app/windows_setup.py install --source claude --dry-run
+  py -3 -X utf8 app/windows_setup.py install --source workbuddy,claude --claude-root "D:\\Claude config" --dry-run
   py -3 -X utf8 app/windows_setup.py install --source codex,workbuddy,dsh,qodercn --dry-run
   py -3 -X utf8 app/windows_setup.py install --source codex --sessions-root "D:\\my codex\\sessions"
   py -3 -X utf8 app/windows_setup.py install --codex-endpoint "Windows 上已确认的实际 IPC 端点"
@@ -54,6 +56,10 @@ Qoder CN 来自 Y1X1n 的 PR #8（b06b3da），适配器保持原样；贡献来
 all 保持 Codex + WorkBuddy + DSH；加入 Qoder 请显式选择 qodercn 或上面的四来源组合。
 Qoder 默认读取 ~/.qoder-cn，可用 --qoder-root 与 --qoder-app-data 指定路径；重装保留配置。
 Qoder 问答等待支持提醒灯，权限授权等待目前不支持；无更新的会话超过十分钟会过期。
+Claude Code 交互式 CLI 须显式启用；both 和 all 不包含 Claude。
+首次安装的 Claude 目录按 --claude-root、CLAUDE_CONFIG_DIR、~/.claude 依次选择，并保存绝对路径。
+重装保留已保存目录；需要更改时显式传入 --claude-root。不会安装 Claude 或改动其设置。
+Claude 支持范围和验证边界见 docs/claude-code.md 与 docs/claude-code-validation.md。
 应用内部状态格式可能随版本变化；支持范围和历史验证详见 docs/windows.md。
 DSH 首轮仅支持 Windows 原生官方桌面版，默认使用 ~/.dsh/profiles/desktop。
 启用 DSH 会安装受管观察插件；安装后重启 DSH 并创建新任务做软件检查。
@@ -87,7 +93,8 @@ def source_revision(root, exported_commit=None):
         commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root,
                                 capture_output=True, text=True, check=True, timeout=5).stdout.strip()
         changed = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=all', '--',
-                                  'm1', 'docs/windows.md', 'docs/windows-contributions.md', 'docs/qodercn.md'],
+                                  'm1', 'docs/windows.md', 'docs/windows-contributions.md', 'docs/qodercn.md',
+                                  'docs/claude-code.md', 'docs/claude-code-validation.md'],
                                  cwd=root, capture_output=True, text=True, check=True, timeout=5).stdout
         return {'commit': commit, 'dirty': bool(changed.strip())}
     except (OSError, subprocess.SubprocessError):
@@ -101,7 +108,8 @@ def build(output: Path, source_commit=None):
     files.update({name: source / 'windows' / name for name in SCRIPTS})
     files.update({f'app/{name}': source / name for name in APP_FILES})
     files['LICENSE'] = source.parent / 'LICENSE'
-    for name in ('windows.md', 'windows-contributions.md', 'qodercn.md'):
+    for name in ('windows.md', 'windows-contributions.md', 'qodercn.md',
+                 'claude-code.md', 'claude-code-validation.md'):
         files['docs/' + name] = source.parent / 'docs' / name
     missing = [str(path) for path in files.values() if not path.is_file()]
     if missing:
@@ -116,7 +124,8 @@ def build(output: Path, source_commit=None):
     manifest = {'version': VERSION, 'runtime_bundled': False, 'requires_python': '>=3.11',
                 'installation_network_downloads': True, 'hardware_verified': False,
                 'windows_runtime_verified': False, 'default_dry_run': True,
-                'supported_sources': ['codex', 'workbuddy', 'dsh', 'qodercn'], 'source_choices': list(SOURCES),
+                'supported_sources': ['codex', 'workbuddy', 'dsh', 'qodercn', 'claude'],
+                'explicit_opt_in_sources': ['claude'], 'source_choices': list(SOURCES),
                 'dsh_windows_integrated': True, 'dsh_profile': 'desktop',
                 'dsh_windows_runtime_verified': False,
                 'qodercn_windows_runtime_verified': False,

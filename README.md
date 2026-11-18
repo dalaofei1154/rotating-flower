@@ -47,6 +47,7 @@ Each mode has a speed preset. When several tasks run together, the flower uses t
 | WorkBuddy | [v0.7.0 — available now](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0) | Apple silicon · macOS 12+ |
 | [DeepSeek Harness (DSH)](docs/dsh-macos.md) | [v0.7.0 — available now](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0) | Apple silicon · macOS 13+ |
 | [Qoder CN](docs/qodercn.md) | Source integration; no packaged release yet | macOS source · Windows candidate tested separately |
+| [Claude Code interactive CLI](docs/claude-code.md) | Opt-in source integration; no packaged release yet | Windows CLI 2.1.225 tested · Mac/hardware acceptance pending |
 
 
 <a id="install"></a>

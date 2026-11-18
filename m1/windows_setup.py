@@ -16,6 +16,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'integrated'))
 from source_config import CHOICES, enabled_sources
+from claude_code_adapter import claude_root as resolve_claude_root
 from dsh_setup import DshPluginChange
 
 VERSION = '0.7.0-windows-preview.6-main-integration'
@@ -26,6 +27,7 @@ BRIDGE_FILES = (
     'integrated_bridge.py', 'attention_state.py', 'motor_bridge_base.py',
     'runtime_feed.py', 'state_reducer.py', 'root_catalog.py',
     'workbuddy_adapter.py', 'dsh_adapter.py', 'qodercn_adapter.py', 'source_config.py',
+    'claude_code_adapter.py', 'claude_process.py',
     'platform_support.py', 'serial_transport.py', 'windows_ipc.py',
 )
 APP_FILES = ('windows_setup.py', 'dsh_setup.py', 'dsh/flower-observer.mjs',
@@ -122,6 +124,7 @@ def merged_settings(previous, args):
         'workbuddy_root': str(next((p for p in (Path.home() / '.workbuddy', Path.home() / '.workbuddy-ai')
                                    if (p / 'workbuddy.db').is_file()), Path.home() / '.workbuddy')),
         'qoder_root': str(Path.home() / '.qoder-cn'), 'qoder_app_data': None,
+        'claude_root': None,
         'codex_endpoint': None, 'port': 'auto', 'dry_run': True,
     }
     result = {**defaults, **prior}
@@ -135,6 +138,7 @@ def merged_settings(previous, args):
         result[name] = str(Path(result[name]).expanduser().resolve())
     if result['qoder_app_data'] is not None:
         result['qoder_app_data'] = str(Path(result['qoder_app_data']).expanduser().resolve())
+    result['claude_root'] = str(resolve_claude_root(result['claude_root']))
     return result
 
 
@@ -145,7 +149,7 @@ def bridge_command(root, config, *, once=False, launch_id=''):
     settings = config['settings']
     for key in ('source', 'sessions_root', 'workbuddy_root', 'port'):
         command += ['--' + key.replace('_', '-'), settings[key]]
-    for key in ('qoder_root', 'qoder_app_data'):
+    for key in ('qoder_root', 'qoder_app_data', 'claude_root'):
         if settings.get(key):
             command += ['--' + key.replace('_', '-'), settings[key]]
     if settings.get('codex_endpoint'):
@@ -507,6 +511,7 @@ def make_parser():
     parser.add_argument('--workbuddy-root', type=Path)
     parser.add_argument('--qoder-root', type=Path)
     parser.add_argument('--qoder-app-data', type=Path)
+    parser.add_argument('--claude-root', type=Path)
     parser.add_argument('--codex-endpoint')
     parser.add_argument('--port')
     mode = parser.add_mutually_exclusive_group()

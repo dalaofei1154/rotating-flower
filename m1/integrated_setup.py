@@ -25,6 +25,7 @@ from dsh_setup import DshPluginChange, dsh_home
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'integrated'))
 from source_config import CHOICES, LABELS, enabled_sources, selection_for
+from claude_code_adapter import ClaudeCodeSource, claude_root as resolve_claude_root
 
 VERSION = '0.7.0'
 LABEL = 'com.rotatingflower.codex-motor'
@@ -76,7 +77,7 @@ def existing():
     if not valid:
         raise RuntimeError(f'现有小花版本不是本包可升级的版本：{entry}。已停止，避免覆盖更新版本。')
     options = {}
-    for key in ('--source', '--sessions-root', '--workbuddy-root', '--qoder-root', '--port',
+    for key in ('--source', '--sessions-root', '--workbuddy-root', '--qoder-root', '--claude-root', '--port',
                 '--attention-cache'):
         if key in args:
             index = args.index(key)
@@ -159,19 +160,24 @@ def detect_apps():
     return found
 
 
-def configuration(previous, requested_source=None, workbuddy_root=None):
+def configuration(previous, requested_source=None, workbuddy_root=None, claude_root=None):
     options = previous['options'] if previous else {}
     apps = detect_apps()
     if requested_source:
         source = requested_source
         enabled = enabled_sources(source)
-        if any(name not in apps for name in enabled):
+        # Claude is a read-only CLI source, explicitly enabled without a .app.
+        if any(name != 'claude' and name not in apps for name in enabled):
             raise RuntimeError('没有找到所选应用的有效安装，请先安装并打开所选应用。')
     else:
-        if not apps:
+        selected = set(apps)
+        # Keep an existing CLI opt-in while refreshing desktop app detection.
+        if previous and 'claude' in enabled_sources(options.get('--source', 'codex')):
+            selected.add('claude')
+        if not selected:
             raise RuntimeError('没有检测到已安装的 Codex、WorkBuddy、DeepSeek Harness 或 Qoder CN。'
                                '请先安装其中一个应用，再双击安装小花。')
-        source = selection_for(apps)
+        source = selection_for(selected)
     home = Path.home()
     roots = [home / '.workbuddy', home / '.workbuddy-ai']
     default_wb = next((p for p in roots if (p / 'workbuddy.db').is_file()), roots[0])
@@ -179,6 +185,8 @@ def configuration(previous, requested_source=None, workbuddy_root=None):
             'sessions_root': Path(options.get('--sessions-root', str(home / '.codex/sessions'))),
             'workbuddy_root': Path(workbuddy_root or options.get('--workbuddy-root', default_wb)),
             'qoder_root': Path(options.get('--qoder-root', str(home / '.qoder-cn'))),
+            'claude_root': resolve_claude_root(claude_root if claude_root is not None
+                                              else options.get('--claude-root')),
             'port': options.get('--port', 'auto')}
 
 
@@ -223,6 +231,16 @@ def preflight(config):
             result['qodercn'] = {'readiness': 'ready'}
         else:
             result['qodercn'] = {'readiness': 'not_initialized'}
+    if 'claude' in enabled:
+        # Share the adapter's schema and process checks. A directory alone does
+        # not prove a compatible, live interactive CLI session is available.
+        try:
+            with closing(ClaudeCodeSource(config.get('claude_root'))) as source:
+                snapshot = source.poll(time.time())
+            result['claude'] = {key: snapshot[key] for key in ('readiness', 'detail', 'error')
+                                if key in snapshot}
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            result['claude'] = {'readiness': 'error', 'error': type(exc).__name__}
     config['preflight'] = result
     for name, state in result.items():
         label = LABELS[name]
@@ -266,6 +284,7 @@ def install(config, previous=None):
             '--source', config['source'], '--sessions-root', str(config['sessions_root']),
             '--workbuddy-root', str(config['workbuddy_root']),
             '--qoder-root', str(config.get('qoder_root') or Path.home() / '.qoder-cn'),
+            '--claude-root', str(resolve_claude_root(config.get('claude_root'))),
             '--port', config['port'],
             '--status-file', str(target / 'status.json'), '--launch-id', launch_id]
     payload = {'Label': LABEL, 'ProgramArguments': args, 'RunAtLoad': True, 'KeepAlive': True,
@@ -416,7 +435,7 @@ def uninstall(previous):
         if previous and was_running:
             launchctl('bootstrap', f'gui/{os.getuid()}', str(plist), check=False)
         raise
-    print('小花后台服务与登录自启已全部移除；Codex、WorkBuddy、DSH 和 Qoder CN 均不再联动。备份和日志保留。')
+    print('小花后台服务与登录自启已全部移除；Codex、WorkBuddy、DSH、Qoder CN 和 Claude Code 均不再联动。备份和日志保留。')
     if change.removed:
         print('DSH 插件配置已移除，请退出并重新打开 DeepSeek Harness。')
     return 0
@@ -427,6 +446,7 @@ def main(argv=None):
     parser.add_argument('action', choices=['install', 'uninstall', 'status'])
     parser.add_argument('--source', choices=CHOICES)
     parser.add_argument('--workbuddy-root', type=Path)
+    parser.add_argument('--claude-root', type=Path)
     parser.add_argument('--verify-seconds', type=float, default=12)
     args = parser.parse_args(argv)
     if sys.platform != 'darwin':
@@ -446,7 +466,7 @@ def main(argv=None):
                 return 0
             if args.action == 'uninstall':
                 return uninstall(previous)
-            receipt = install(configuration(previous, args.source, args.workbuddy_root), previous)
+            receipt = install(configuration(previous, args.source, args.workbuddy_root, args.claude_root), previous)
             return verify(receipt, args.verify_seconds)
         except BlockingIOError:
             print('另一个小花安装程序正在运行，请等待它完成。', file=sys.stderr)

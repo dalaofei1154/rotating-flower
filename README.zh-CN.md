@@ -56,6 +56,7 @@ https://github.com/user-attachments/assets/f6ea34b5-76c4-4571-9aa7-4811f79ccf80
 | WorkBuddy | [v0.7.0](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0) | 已提供下载 |
 | DeepSeek Harness（DSH） | [v0.7.0](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0) | 已提供下载 · [适配说明](docs/dsh-macos.md) |
 | Qoder CN | 源码接入，尚未发布安装包 | macOS 源码入口；Windows 候选版另行验证 · [适配说明](docs/qodercn.md) |
+| Claude Code 交互 CLI | 显式启用的源码接入，尚未发布安装包 | Windows CLI 2.1.225 已测；Mac 和硬件待验收 · [适配说明](docs/claude-code.md#中文说明) |
 
 小花软件支持 **Apple 芯片 Mac、macOS 12+**；DSH 自身需要 **macOS 13+**。
 

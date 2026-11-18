@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 import integrated_setup as setup
@@ -58,6 +58,47 @@ class IntegratedSetupTests(unittest.TestCase):
         self.assertEqual(config['port'], '/dev/cu.original')
         self.assertEqual(config['sessions_root'], Path('/custom/codex'))
         self.assertEqual(setup.configuration(previous, 'workbuddy')['source'], 'workbuddy')
+
+    def test_claude_only_installs_with_absolute_root_without_app_or_settings(self):
+        custom = self.root / 'Claude config with spaces'
+        with patch.object(setup, 'detect_apps', return_value={}), \
+             patch.object(setup, 'launchctl', return_value=True), \
+             patch.object(setup.os, 'getuid', return_value=501, create=True):
+            config = setup.configuration(None, 'claude', claude_root=custom)
+            receipt = setup.install(config)
+        args = plistlib.loads(self.plist.read_bytes())['ProgramArguments']
+        self.assertEqual(args[args.index('--claude-root') + 1], str(custom.resolve()))
+        self.assertEqual(args[args.index('--source') + 1], 'claude')
+        self.assertEqual(receipt['source'], 'claude')
+        self.assertFalse(custom.exists())
+
+    def test_upgrade_preserves_claude_opt_in_and_custom_root(self):
+        self.prior('claude', revision=setup.REVISION)
+        saved = self.root / 'saved Claude config'
+        payload = plistlib.loads(self.plist.read_bytes())
+        payload['ProgramArguments'] += ['--claude-root', str(saved)]
+        self.plist.write_bytes(plistlib.dumps(payload))
+        with patch.object(setup, 'detect_apps', return_value={}), \
+             patch.dict(setup.os.environ, {'CLAUDE_CONFIG_DIR': str(self.root / 'changed environment')}):
+            previous = setup.existing()
+            config = setup.configuration(previous)
+        self.assertEqual(config['source'], 'claude')
+        self.assertEqual(config['claude_root'], saved.resolve())
+        self.assertEqual(previous['options']['--claude-root'], str(saved))
+
+    def test_installer_cli_passes_explicit_claude_root(self):
+        custom = self.root / 'command line Claude root'
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+             patch.object(setup, 'fcntl', Mock(LOCK_EX=2, LOCK_NB=4)), \
+             patch.object(setup, 'detect_apps', return_value={}), \
+             patch.object(setup, 'install', return_value={}) as install, \
+             patch.object(setup, 'verify', return_value=5):
+            try:
+                result = setup.main(['install', '--source', 'claude', '--claude-root', str(custom)])
+            except SystemExit as exc:
+                self.fail(f'Claude installer CLI was rejected: {exc}')
+        self.assertEqual(result, 5)
+        self.assertEqual(install.call_args.args[0]['claude_root'], custom.resolve())
 
     def test_new_or_workbuddy_only_never_enables_codex(self):
         self.assertEqual(setup.configuration(None)['source'], 'workbuddy')
@@ -338,6 +379,49 @@ class SourceDetectionTests(unittest.TestCase):
                 self.assertEqual(config['port'], '/dev/cu.saved')
         with patch.object(setup, 'detect_apps', return_value={'codex': {}, 'workbuddy': {}}):
             self.assertEqual(setup.configuration(previous, 'workbuddy')['source'], 'workbuddy')
+
+    def test_claude_requires_opt_in_but_preserves_prior_opt_in_on_upgrade(self):
+        previous = {'options': {'--source': 'codex,claude'}}
+        (self.root / '.claude').mkdir()
+        with patch.object(setup, 'detect_apps', return_value={'workbuddy': {}}), \
+             patch.object(setup.Path, 'home', return_value=self.root):
+            self.assertEqual(setup.configuration(None)['source'], 'workbuddy')
+            self.assertEqual(setup.configuration(previous)['source'], 'workbuddy,claude')
+            self.assertEqual(setup.configuration(previous, 'workbuddy')['source'], 'workbuddy')
+        with patch.object(setup, 'detect_apps', return_value={}):
+            with self.assertRaisesRegex(RuntimeError, '没有检测到已安装'):
+                setup.configuration(None)
+
+    def test_claude_root_precedence_and_absolute_resolution(self):
+        previous = {'options': {'--source': 'claude', '--claude-root': str(self.root / 'saved')}}
+        with patch.object(setup, 'detect_apps', return_value={}), \
+             patch.object(setup.Path, 'home', return_value=self.root), \
+             patch.dict(setup.os.environ, {'CLAUDE_CONFIG_DIR': str(self.root / 'environment')}):
+            self.assertEqual(setup.configuration(None, 'claude')['claude_root'],
+                             (self.root / 'environment').resolve())
+            self.assertEqual(setup.configuration(previous)['claude_root'], (self.root / 'saved').resolve())
+            self.assertEqual(setup.configuration(previous, 'claude', claude_root=Path('relative Claude'))['claude_root'],
+                             Path('relative Claude').resolve())
+        with patch.object(setup, 'detect_apps', return_value={}), \
+             patch.object(setup.Path, 'home', return_value=self.root), \
+             patch.dict(setup.os.environ, {}, clear=True):
+            self.assertEqual(setup.configuration(None, 'claude')['claude_root'], (self.root / '.claude').resolve())
+
+    def test_claude_preflight_waits_without_creating_root_and_rejects_file_root(self):
+        root = self.root / 'Claude'
+        with redirect_stdout(io.StringIO()):
+            result = setup.preflight({'source': 'claude', 'claude_root': root})
+        self.assertEqual(result['claude']['readiness'], 'not_initialized')
+        self.assertFalse(root.exists())
+        root.write_text('a file is not a config directory')
+        with redirect_stdout(io.StringIO()):
+            result = setup.preflight({'source': 'claude', 'claude_root': root})
+        self.assertEqual(result['claude']['readiness'], 'error')
+
+    def test_explicit_claude_does_not_bypass_missing_desktop_app_check(self):
+        with patch.object(setup, 'detect_apps', return_value={}):
+            with self.assertRaisesRegex(RuntimeError, '没有找到所选应用'):
+                setup.configuration(None, 'workbuddy,claude')
 
     def test_nested_application_detected_when_spotlight_unavailable(self):
         app = self.app('Applications/Tools/ChatGPT.app', 'com.openai.codex')

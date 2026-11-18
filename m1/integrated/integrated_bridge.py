@@ -17,6 +17,7 @@ from state_reducer import RolloutSnapshot, RuntimeSnapshot, reduce_state, SPEED_
 from workbuddy_adapter import WorkBuddyAdapter
 from dsh_adapter import DshAdapter
 from qodercn_adapter import QoderCnSource
+from claude_code_adapter import ClaudeCodeSource
 from source_config import CHOICES, enabled_sources
 from platform_support import acquire_lock, bridge_lock_path, is_windows
 from serial_transport import PosixSerialTransport, open_transport, write_frame
@@ -310,6 +311,7 @@ def main(argv=None):
     parser.add_argument('--workbuddy-root',type=Path,default=Path.home()/'.workbuddy')
     parser.add_argument('--qoder-root',type=Path,default=Path.home()/'.qoder-cn')
     parser.add_argument('--qoder-app-data',type=Path,default=None)
+    parser.add_argument('--claude-root',type=Path,default=None)
     parser.add_argument('--source',choices=CHOICES,default='workbuddy')
     parser.add_argument('--port',default='auto',
                         help='Serial device, or auto for all connected flowers')
@@ -343,6 +345,8 @@ def main(argv=None):
         sources['dsh']=RecoveringSource(DshAdapter)
     if 'qodercn' in enabled_sources(args.source):
         sources['qodercn']=RecoveringSource(lambda:QoderCnSource(args.qoder_root,args.qoder_app_data))
+    if 'claude' in enabled_sources(args.source):
+        sources['claude']=RecoveringSource(lambda:ClaudeCodeSource(args.claude_root))
     flowers=FlowerGroup(args.port);previous=None;last_status=0
     once_deadline=time.monotonic()+5
     try:

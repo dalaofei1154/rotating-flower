@@ -21,6 +21,9 @@ class WindowsSetupTests(unittest.TestCase):
         home_patch = patch.object(Path, 'home', return_value=self.home)
         home_patch.start()
         self.addCleanup(home_patch.stop)
+        claude_patch = patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.home / '.claude')})
+        claude_patch.start()
+        self.addCleanup(claude_patch.stop)
 
     def dsh_fixture(self, root, *, managed=False):
         patch_path = self.home / '.dsh/profiles/desktop/cordis.patch.yml'
@@ -83,6 +86,62 @@ class WindowsSetupTests(unittest.TestCase):
             for flag, value in [('--qoder-root', qoder), ('--qoder-app-data', app_data)]:
                 self.assertEqual(command[command.index(flag) + 1], str(value.resolve()))
             self.assertEqual(command[command.index('--source') + 1], 'codex,workbuddy,dsh,qodercn')
+
+    def test_claude_root_survives_config_roundtrip_and_reinstall(self):
+        with tempfile.TemporaryDirectory(prefix='小花 Claude ') as temp:
+            root = Path(temp)
+            claude = root / 'Claude config with spaces'
+            try:
+                args = setup.make_parser().parse_args([
+                    'install', '--source', 'workbuddy,claude', '--claude-root', str(claude)])
+            except SystemExit as exc:
+                self.fail(f'Claude root option was rejected: {exc}')
+            settings = setup.merged_settings(None, args)
+            self.assertEqual(settings['claude_root'], str(claude.resolve()))
+            config = self.config(root, **settings)
+            setup.write_json(root / 'config.json', config)
+            restored = setup.read_config(root)
+            with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(root / 'different environment')}):
+                updated = setup.merged_settings(restored, setup.make_parser().parse_args(['install']))
+            self.assertEqual(updated, settings)
+            for once in (False, True):
+                command = setup.bridge_command(root, restored, once=once)
+                self.assertEqual(command[command.index('--claude-root') + 1], str(claude.resolve()))
+                self.assertEqual(command[command.index('--source') + 1], 'workbuddy,claude')
+            self.assertFalse(claude.exists())
+
+    def test_claude_root_migration_uses_environment_without_enabling_source(self):
+        with tempfile.TemporaryDirectory(prefix='小花 Claude migration ') as temp:
+            root = Path(temp)
+            previous = self.config(root, source='all')
+            setup.write_json(root / 'config.json', previous)
+            restored = setup.read_config(root)
+            args = setup.make_parser().parse_args(['install'])
+            environment = root / 'Claude from environment'
+            with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(environment)}):
+                updated = setup.merged_settings(restored, args)
+            self.assertEqual(updated.get('claude_root'), str(environment.resolve()))
+            self.assertEqual(updated['source'], 'all')
+            self.assertEqual(setup.enabled_sources(updated['source']), ('codex', 'workbuddy', 'dsh'))
+            self.assertNotIn('claude_root', restored['settings'])
+            self.assertEqual(setup.read_config(root), previous)
+            self.assertFalse(environment.exists())
+
+    def test_claude_root_falls_back_to_home_and_explicit_override_wins(self):
+        args = setup.make_parser().parse_args(['install'])
+        with patch.dict(os.environ, {}, clear=True):
+            settings = setup.merged_settings(None, args)
+        self.assertEqual(settings.get('claude_root'), str((self.home / '.claude').resolve()))
+        with tempfile.TemporaryDirectory() as temp:
+            previous = self.config(Path(temp), source='claude', claude_root=str(self.home / 'saved'))
+            try:
+                args = setup.make_parser().parse_args(['install', '--claude-root', 'relative Claude'])
+            except SystemExit as exc:
+                self.fail(f'Claude root option was rejected: {exc}')
+            with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.home / 'environment')}):
+                settings = setup.merged_settings(previous, args)
+            self.assertEqual(settings['claude_root'], str(Path('relative Claude').resolve()))
+            self.assertEqual(settings['source'], 'claude')
 
     def test_commands_preserve_spaces_unicode_and_once_cannot_drive_hardware(self):
         with tempfile.TemporaryDirectory(prefix='小花 windows ') as temp:
@@ -273,6 +332,7 @@ class WindowsSetupTests(unittest.TestCase):
                     args = setup.make_parser().parse_args(['install', '--source', selection])
                     settings = setup.merged_settings(previous, args)
                     self.assertEqual(settings, {**previous['settings'], 'source': selection,
+                    'claude_root': str((self.home / '.claude').resolve()),
                     'qoder_root': str((self.home / '.qoder-cn').resolve()), 'qoder_app_data': None})
                     config = {**previous, 'settings': settings}
                     setup.write_json(root / 'config.json', config)
@@ -339,6 +399,7 @@ class WindowsSetupTests(unittest.TestCase):
             self.assertIn(json.dumps(plugin.resolve().as_uri(), ensure_ascii=False), patch_path.read_text())
             settings = setup.read_config(root)['settings']
             self.assertEqual(settings, {**previous['settings'], 'source': 'workbuddy,dsh',
+                'claude_root': str((self.home / '.claude').resolve()),
                 'qoder_root': str((self.home / '.qoder-cn').resolve()), 'qoder_app_data': None})
 
     def test_switching_away_from_dsh_removes_only_managed_configuration(self):

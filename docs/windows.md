@@ -24,6 +24,8 @@ py -3 -X utf8 .\app\windows_setup.py install --source codex --dry-run
 py -3 -X utf8 .\app\windows_setup.py install --source workbuddy --dry-run
 py -3 -X utf8 .\app\windows_setup.py install --source dsh --dry-run
 py -3 -X utf8 .\app\windows_setup.py install --source qodercn --dry-run
+py -3 -X utf8 .\app\windows_setup.py install --source claude --dry-run
+py -3 -X utf8 .\app\windows_setup.py install --source workbuddy,claude --claude-root "D:\Claude config" --dry-run
 py -3 -X utf8 .\app\windows_setup.py install --source codex,workbuddy,dsh,qodercn --dry-run
 ```
 
@@ -35,6 +37,8 @@ py -3 -X utf8 .\app\windows_setup.py install --enable-hardware --port auto
 ```
 
 `install.cmd` defaults on a first install to Codex + WorkBuddy and dry-run (no USB movement/light). Reinstallation preserves saved source, paths, port and mode unless explicitly overridden. `all` retains the three-source meaning Codex + WorkBuddy + DSH; add Qoder explicitly. `--qoder-root` and `--qoder-app-data` persist custom Qoder locations.
+
+Claude Code's interactive CLI is an explicit opt-in source; neither `both` nor `all` enables it. On first installation, `--claude-root` takes priority over `CLAUDE_CONFIG_DIR`, then `~/.claude`. The installer saves an absolute path and preserves it on reinstallation unless `--claude-root` overrides it. See [Claude Code support](claude-code.md) and its [validation record](claude-code-validation.md).
 
 `start.cmd` resumes; `stop.cmd` pauses until start (including across login); `uninstall.cmd` stops the service, removes its login entry and managed DSH registration. Logs, backups and runtime directories are retained for recovery. Installation is per-user under `%LOCALAPPDATA%\RotatingFlower`, with an HKCU Run value named `RotatingFlower`; it starts after that user logs in, not before login as a system service.
 

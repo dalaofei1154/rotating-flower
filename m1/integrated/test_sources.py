@@ -1,6 +1,8 @@
 import unittest
+from itertools import combinations
 from integrated_bridge import combine_sources, RecoveringSource
 from unittest.mock import Mock
+from source_config import CHOICES, LABELS, enabled_sources, selection_for
 
 
 def source(motor='STOP', light=False, healthy=True):
@@ -8,6 +10,31 @@ def source(motor='STOP', light=False, healthy=True):
 
 
 class SourceFusionTests(unittest.TestCase):
+    def test_claude_is_explicit_and_legacy_aliases_keep_their_meaning(self):
+        self.assertIn('claude', CHOICES)
+        self.assertEqual(enabled_sources('all'), ('codex', 'workbuddy', 'dsh'))
+        self.assertEqual(enabled_sources('both'), ('codex', 'workbuddy'))
+        self.assertEqual(enabled_sources('claude'), ('claude',))
+        self.assertEqual(LABELS['claude'], 'Claude Code')
+
+    def test_every_source_combination_with_claude_round_trips(self):
+        names = ('codex', 'workbuddy', 'dsh', 'qodercn', 'claude')
+        for size in range(1, len(names) + 1):
+            for combo in combinations(names, size):
+                with self.subTest(combo=combo):
+                    selection = selection_for(set(combo))
+                    self.assertIn(selection, CHOICES)
+                    self.assertEqual(enabled_sources(selection), combo)
+        for selection in ('claude,claude', 'claude,unknown', '', None):
+            with self.subTest(invalid=selection), self.assertRaises(ValueError):
+                enabled_sources(selection)
+
+    def test_claude_wait_and_other_source_work_remain_independent(self):
+        self.assertEqual(combine_sources({'claude': source(light=True),
+                                         'codex': source('RUN XHIGH')}), ('RUN XHIGH', True))
+        self.assertEqual(combine_sources({'claude': source('RUN HIGH', True, False),
+                                         'workbuddy': source('RUN LOW')}), ('RUN LOW', False))
+
     def test_codex_disconnected_does_not_stop_workbuddy(self):
         self.assertEqual(combine_sources({'codex':source(healthy=False),
                                           'workbuddy':source('RUN HIGH')}),('RUN HIGH',False))

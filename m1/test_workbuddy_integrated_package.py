@@ -23,8 +23,12 @@ class IntegratedPackageTests(unittest.TestCase):
             (root / 'LICENSE').write_text('fixture license')
             for name in package.BRIDGE_FILES:
                 (integrated / name).write_text('# fixture ' + name)
-            for name in ('attention-cache.json', 'status.json', 'test_private.py', 'obsolete.py'):
+            for name in ('attention-cache.json', 'status.json', 'test_private.py', 'obsolete.py',
+                         'test_claude_code_adapter.py', 'test_claude_process.py',
+                         'transcript.jsonl'):
                 (integrated / name).write_text('private fixture')
+            (integrated / 'probes').mkdir()
+            (integrated / 'probes' / 'session.json').write_text('private probe')
             for name in package.RUNTIME_FILES:
                 (source / name).parent.mkdir(parents=True, exist_ok=True)
                 (source / name).write_text('# fixture ' + name)
@@ -38,12 +42,19 @@ class IntegratedPackageTests(unittest.TestCase):
                  patch.object(package, 'PYTHON_SHA256', hashlib.sha256(runtime.read_bytes()).hexdigest()):
                 archive = package.build(output, runtime)
             manifest = json.loads((output / 'package_manifest.json').read_text())
-            self.assertEqual(manifest['supported_sources'], ['codex', 'workbuddy', 'dsh'])
+            self.assertEqual(manifest['supported_sources'],
+                             ['codex', 'workbuddy', 'dsh', 'qodercn', 'claude'])
+            self.assertEqual(manifest['source_selection'], 'installed-apps')
+            self.assertEqual(manifest['auto_detected_sources'],
+                             ['codex', 'workbuddy', 'dsh', 'qodercn'])
+            self.assertEqual(manifest['explicit_opt_in_sources'], ['claude'])
             self.assertEqual(manifest['zip_sha256'], hashlib.sha256(archive.read_bytes()).hexdigest())
             with zipfile.ZipFile(archive) as zipped:
                 contents = zipped.namelist()
                 self.assertIn(package.NAME + '/安装资源/dsh_setup.py', contents)
                 self.assertIn(package.NAME + '/安装资源/dsh/flower-observer.mjs', contents)
+                self.assertIn(package.NAME + '/安装资源/integrated/claude_code_adapter.py', contents)
+                self.assertIn(package.NAME + '/安装资源/integrated/claude_process.py', contents)
                 self.assertEqual({Path(n).name for n in contents if '/integrated/' in n}, set(package.BRIDGE_FILES))
                 for n in contents:
                     self.assertNotIn(b'private', zipped.read(n))
@@ -64,6 +75,27 @@ class IntegratedPackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'workbuddy_adapter.py'):
                     package.build(root / 'out', archive)
             self.assertFalse((root / 'out').exists())
+
+    def test_each_claude_runtime_file_is_required_before_creating_output(self):
+        for missing in ('claude_code_adapter.py', 'claude_process.py'):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / 'm1'
+                integrated = root / 'integrated'
+                integrated.mkdir(parents=True)
+                (root.parent / 'LICENSE').write_text('fixture license')
+                for name in set(package.BRIDGE_FILES) | {'claude_code_adapter.py', 'claude_process.py'}:
+                    if name != missing:
+                        (integrated / name).write_text('# fixture runtime')
+                for name in package.RUNTIME_FILES:
+                    (root / name).parent.mkdir(parents=True, exist_ok=True)
+                    (root / name).write_text('# fixture runtime')
+                archive = root / 'python.tar.gz'
+                archive.write_bytes(b'fixture')
+                with patch.object(package, '__file__', str(root / 'package.py')), \
+                     patch.object(package, 'PYTHON_SHA256', hashlib.sha256(archive.read_bytes()).hexdigest()):
+                    with self.assertRaisesRegex(ValueError, missing):
+                        package.build(root / 'out', archive)
+                self.assertFalse((root / 'out').exists())
 
     def test_unverified_python_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

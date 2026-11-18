@@ -18,8 +18,9 @@ RUNTIME_FILES = ("integrated_setup.py", "integrated_install.sh", "dsh_setup.py",
                  "dsh/flower-observer.mjs")
 BRIDGE_FILES = ("integrated_bridge.py", "attention_state.py", "motor_bridge_base.py",
                 "runtime_feed.py", "state_reducer.py", "root_catalog.py", "workbuddy_adapter.py",
-                "dsh_adapter.py", "qodercn_adapter.py", "source_config.py",
-                "platform_support.py", "serial_transport.py", "windows_ipc.py")
+                "dsh_adapter.py", "qodercn_adapter.py", "claude_code_adapter.py",
+                "claude_process.py", "source_config.py", "platform_support.py",
+                "serial_transport.py", "windows_ipc.py")
 
 GUIDE = """小花 · Mac 统一安装
 
@@ -35,6 +36,15 @@ Codex 或 WorkBuddy 还没打开时，后台会等待。DSH 插件需要已有�
 若提示找不到 DSH 配置，请先打开 DSH，再运行本安装器。
 本包不包含这些应用本身；请先安装你要使用的应用。
 以后新增另一个应用，再双击安装一次即可重新识别。平时登录 Mac 后自动运行。
+
+Claude Code 交互式 CLI 来源须显式启用，不参与桌面应用自动识别。
+在终端进入解压后的文件夹后，可运行：
+/bin/bash "./安装资源/integrated_install.sh" install --source claude --claude-root "$HOME/.claude"
+同时启用其他来源时，例如 WorkBuddy，可使用 --source workbuddy,claude。
+--claude-root 指向 Claude 配置目录；首次安装未指定时使用当前终端的 CLAUDE_CONFIG_DIR，再回退 ~/.claude。
+升级保留先前保存的目录；需要更改时显式传入 --claude-root。
+安装器会保存绝对目录，可在首次启动 CLI 前安装；不会安装 Claude 或改动其设置。
+Claude Code 参考测试版本为 2.1.225；Mac 真实会话和实体硬件验收尚未完成。
 
 任意一个应用工作，小花就转；同时工作取较高档位，全部结束才停。
 需要回答或授权时亮呼吸灯；其他任务仍工作时，旋转和提醒灯可以同时运行。
@@ -144,7 +154,9 @@ def build(output: Path, python_archive: Path) -> Path:
         shutil.copytree(folder, final_folder)
     (output / 'package_manifest.json').write_text(json.dumps({
         'version': VERSION, 'architecture': 'arm64', 'source_selection': 'installed-apps',
-        'supported_sources': ['codex', 'workbuddy', 'dsh'], 'python_source': PYTHON_URL,
+        'supported_sources': ['codex', 'workbuddy', 'dsh', 'qodercn', 'claude'],
+        'auto_detected_sources': ['codex', 'workbuddy', 'dsh', 'qodercn'],
+        'explicit_opt_in_sources': ['claude'], 'python_source': PYTHON_URL,
         'python_sha256': digest, 'resources': checksums,
         'zip_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
         'apple_developer_signed': False, 'notarized': False,

@@ -1,11 +1,11 @@
 """Stable source names, with legacy 'both' (Codex + WorkBuddy) aliases."""
 from itertools import combinations
 
-NAMES = ('codex', 'workbuddy', 'dsh', 'qodercn')
+NAMES = ('codex', 'workbuddy', 'dsh', 'qodercn', 'claude')
 LABELS = {'codex': 'Codex', 'workbuddy': 'WorkBuddy', 'dsh': 'DeepSeek Harness',
-          'qodercn': 'Qoder CN'}
+          'qodercn': 'Qoder CN', 'claude': 'Claude Code'}
 # 'all' keeps its historical meaning so an existing installation upgrade does
-# not start reporting a new, never-initialized source. Qoder CN is opt-in.
+# not start reporting a new, never-initialized source. New sources are opt-in.
 LEGACY_ALL = ('codex', 'workbuddy', 'dsh')
 _SUBSETS = tuple(','.join(combo) for size in range(1, len(NAMES) + 1)
                  for combo in combinations(NAMES, size))
