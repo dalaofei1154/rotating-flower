@@ -18,9 +18,10 @@ SCRIPTS = ('install.cmd', 'start.cmd', 'stop.cmd', 'check.cmd', 'diagnose.cmd', 
            'launch.cmd', 'find-python.ps1')
 GUIDE = """旋转花 · Windows 软件预览版
 
-本包是接回最新主项目的 preview.6 测试候选，不是正式发布，也不是免依赖 EXE。
-preview.5 已有 Win10 四来源回归及恢复流程记录；本包调整 DSH 配置和观察插件，
-保留主项目已有修复，新增安装错误分步记录，需要针对这些变化验证，不能沿用旧包验收结论。
+Windows 软件预览版 preview.7 包含后台状态文件占用修复（PR #11）。
+已安装旧预览版：把本 ZIP 完整解压到新文件夹，直接双击新版 install.cmd，无需先卸载。
+安装器会沿用原有来源、路径、串口和模式，安装完成后启动后台。如果原来启用了硬件，小花可能恢复转动。
+安装成功后运行同目录的 check.cmd，确认 running 和 status_current 均为 true。使用 DSH 的用户请重启 DSH。
 需要 Windows 桌面环境、Python 3.11 或更新版本；安装时联网从 PyPI 下载
 经过固定版本与 SHA256 校验的 pyserial 3.5，并建立独立 Python 虚拟环境。
 Python 下载：https://www.python.org/downloads/windows/
@@ -132,7 +133,7 @@ def build(output: Path, source_commit=None):
                 'qodercn_upstream_commit': 'b06b3da016caeb04b00214f3c2745207aa8c0aea',
                 'source_revision': revision,
                 'prior_hardware_baseline_sha256': '2d382cccd3bfd6780fa6882a5d593667bb2b5a5302b25003555c100ae49266df',
-                'validation_note': 'Prior preview.5 results do not certify this changed preview.6 package.',
+                'validation_note': 'PR #11 verified status contention and recovery on Windows in dry-run mode. Hardware results for prior previews are recorded separately.',
                 'files': checksums}
     contents['manifest.json'] = (json.dumps(manifest, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
     target = output / (NAME + '.zip')

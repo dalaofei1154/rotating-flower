@@ -20,7 +20,7 @@ from source_config import CHOICES, enabled_sources
 from claude_code_adapter import claude_root as resolve_claude_root
 from dsh_setup import DshPluginChange
 
-VERSION = '0.7.0-windows-preview.6-main-integration'
+VERSION = '0.7.0-windows-preview.7'
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 RUN_VALUE = 'RotatingFlower'
 SOURCES = CHOICES

@@ -1,6 +1,8 @@
 # Windows installation preview
 
-This is the source integration for `0.7.0-windows-preview.6-main-integration`, not a new public Release. Existing v0.7.0 download assets are Mac-only. The archived preview.6 has passed its targeted Windows 10 DSH upgrade, independent-Python migration and login-startup checks. A clean-user first installation has not yet been verified. See the [validation record](#validation-and-attribution) for the exact package and scope.
+Windows preview.7 includes the [background status fix](https://github.com/dalaofei1154/rotating-flower/pull/11) reported by Bella-rab. If another program holds the status file open, the bridge keeps running and publishes a fresh snapshot after the file is released. The packaged bridge passed this check in dry-run mode on Windows with Python 3.11 and 3.13.
+
+**Upgrading an existing preview:** Extract the entire preview.7 ZIP into a new directory, then run its `install.cmd` without arguments. The installer keeps your sources, paths, port and software/hardware mode and starts the upgraded service. Run `check.cmd` and look for `running: true` and `status_current: true`. Restart DSH if it is one of your sources. See below if you are also changing Python installations.
 
 ## Requirements
 
@@ -67,7 +69,7 @@ DSH remains limited in this Windows installer to the default `~/.dsh` desktop pr
 
 This records a tested candidate, not a new Release or a guarantee for every Windows/application version. Original packages and their build-time verification flags remain unchanged.
 
-### Exact candidate
+### Archived preview.6 candidate
 
 - Base main: `a3e6adbf235f4e0eec06e5512daa638047da0f9e` (includes Qoder CN PR #8).
 - Tested source: `c8296c54be84e459223a6bfcc9bf98e9242a4255`.
