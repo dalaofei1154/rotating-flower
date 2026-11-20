@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -105,6 +106,10 @@ class Flower:
                             self.transport=transport; self.path=path; self.last_send=-100
                             self.last_state=None
                             self.capabilities=['motor','attention']
+                            if b'FLOWER_COLOR_V1' in data.splitlines():
+                                self.capabilities.append('color')
+                            if b'FLOWER_STEADY_GREEN_V1' in data.splitlines():
+                                self.capabilities.append('steady_green')
                             log('Connected integrated flower: '+path)
                             return True
                 if b'PONG' in data:
@@ -144,12 +149,22 @@ class Flower:
                     write_frame(self.transport,b'STOP\n');self.last_send=time.monotonic()
                 self.drain()
                 return False
-            now=time.monotonic(); state=(motor,bool(light))
+            if isinstance(light, str) and light not in ('RED', 'YELLOW', 'BLUE', 'GREEN', 'DONE A', 'DONE B'):
+                raise ValueError('Invalid attention color')
+            if light == 'GREEN' and 'steady_green' in self.capabilities:
+                lamp = 'STEADY GREEN'
+            elif isinstance(light, str) and 'color' in self.capabilities:
+                lamp = 'ON' if light == 'GREEN' else light
+            elif isinstance(light, str) and (light == 'GREEN' or light.startswith('DONE')):
+                lamp = 'OFF'
+            else:
+                lamp = 'ON' if light else 'OFF'
+            now=time.monotonic(); state=(motor,lamp)
             if state!=self.last_state or now-self.last_send>=1.5:
-                data=(motor+'\nATTENTION '+('ON' if light else 'OFF')+'\n').encode()
+                data=(motor+'\nATTENTION '+lamp+'\n').encode()
                 write_frame(self.transport,data)
                 if state!=self.last_state:
-                    log(f'SENT [{self.path}] {motor}; LIGHT={"ON" if light else "OFF"}')
+                    log(f'SENT [{self.path}] {motor}; LIGHT={lamp}')
                 self.last_send=now; self.last_state=state
             self.drain()
             return True
@@ -223,6 +238,9 @@ class CodexSource:
         self.catalog=RootCatalog(root)
         self.feed=DesktopRuntimeFeed(socket_path=endpoint,refresh_seconds=2)
         self.known={}
+        self.working_since = {}
+        self.last_poll_at = 0
+        self.completion_light = CompletionLight(self.root.parent / 'state_5.sqlite')
 
     def poll(self, now):
         self.motor.poll(); self.attention.poll(); self.catalog.poll()
@@ -238,9 +256,29 @@ class CodexSource:
                 self.attention.close_chat(tid,now)
         selected,healthy=select_outputs(self.known,snapshot,self.attention.pending,now)
         readiness,detail,error=codex_readiness(self.root,snapshot,healthy,bool(self.known))
+        # A fresh runtime and a live rollout identify the same running chat.
+        # When an existing turn resumes from a wait, begin a new overlap window.
+        running = {}
+        for tid in selected.working_threads:
+            turn = self.known.get(tid)
+            if turn is not None and turn.active and turn.started_at > 0:
+                since = self.working_since.get(tid)
+                if since is None:
+                    since = turn.started_at if turn.started_at >= self.last_poll_at else now
+                running[tid] = max(since, turn.started_at)
+        self.working_since = running
+        self.last_poll_at = now
+        green = self.completion_light.update(running, self.attention.finished_turns,
+                                             snapshot.get('threads', {}) if healthy else {}, now,
+                                             healthy=bool(healthy and readiness=='ready'))
         return {'healthy':bool(healthy and readiness=='ready'),'error':error,
                 'readiness':readiness,'detail':detail,
                 'motor':selected.motor_command,'light':selected.light,
+                'wait_color':codex_wait_color(selected, snapshot, self.attention.pending),
+                'completions':self.attention.completions,
+                'finished_turns':self.attention.finished_turns,
+                'unread_completion':green,
+                'working_since':running,
                 'working_threads':list(selected.working_threads),
                 'waiting_threads':list(selected.waiting_threads),
                 'pending_questions':selected.pending_question_count}
@@ -290,6 +328,107 @@ class RecoveringSource:
 
     def close(self):
         if self.instance is not None:self.instance.close()
+
+
+def codex_wait_color(selected, snapshot, pending):
+    if not selected.light:
+        return None
+    has_options = any(card.has_options for card in pending.values())
+    for tid in selected.waiting_threads:
+        entry = snapshot['threads'][tid]
+        flags = entry['runtime_status']['activeFlags']
+        if 'waitingOnApproval' in flags:
+            return 'RED'
+        if any(req.get('has_options') for req in entry.get('requests', [])):
+            has_options = True
+    return 'BLUE' if has_options else 'YELLOW'
+
+
+class CompletionLight:
+    """Track completed Codex turns during continuous, overlapping work."""
+    def __init__(self, receipt_file=None):
+        self.receipt_file = receipt_file
+        self.pending = {}  # chat -> (turn id, finish time)
+        self.confirmed = set()  # candidate chats the desktop reported as unread
+        self.ui_unread = set()
+        self.previous_workers = set()
+
+    def receipts(self):
+        if not self.pending or self.receipt_file is None:
+            return {}
+        # Read only the receipt for each candidate. A prior turn's receipt
+        # cannot acknowledge a result that has just completed.
+        try:
+            db = sqlite3.connect(self.receipt_file.resolve().as_uri() + '?mode=ro',
+                                 uri=True, timeout=0.03)
+            try:
+                rows = {}
+                for tid, (turn, _) in self.pending.items():
+                    row = db.execute('SELECT first_unread_turn FROM thread_read_receipts '
+                                     'WHERE thread_id=? AND last_published_turn=?', (tid, turn)).fetchone()
+                    if row is not None:
+                        rows[tid] = row[0] is not None
+                return rows
+            finally:
+                db.close()
+        except (OSError, sqlite3.Error):
+            return {}
+
+    def update(self, running, finishes, threads, now, *, healthy=True):
+        if not healthy:
+            # Suspend output on feed loss. On recovery, verify the same work
+            # is still running before allowing any outstanding reminder.
+            return False
+        workers = set(running.items())
+        if not workers.intersection(self.previous_workers):
+            self.pending.clear()
+            self.confirmed.clear()
+            self.ui_unread.clear()
+        self.previous_workers = workers
+        for tid, turn, stamp in finishes:
+            if any(peer != tid and since <= stamp for peer, since in workers):
+                self.pending[tid] = (turn, stamp)
+                self.confirmed.discard(tid)
+                self.ui_unread.discard(tid)
+
+        receipts = self.receipts()
+        for tid, (_, stamp) in list(self.pending.items()):
+            entry = threads.get(tid, {})
+            current = (entry.get('owner_found') and entry.get('host_id') == 'local'
+                       and entry.get('parent_thread_id') is None
+                       and -2 <= now - entry.get('observed_at', 0) < 6)
+            unread = entry.get('unread') if current else None
+            if unread is True:
+                self.ui_unread.add(tid)
+            if (entry.get('archived') or (tid in running and running[tid] > stamp)
+                    or (unread is False and tid in self.ui_unread)):
+                dismiss = True
+            elif tid in receipts:
+                # The acknowledged turn ID fences startup/propagation races.
+                dismiss = not receipts[tid]
+                if not dismiss:
+                    self.confirmed.add(tid)
+            elif unread is True:
+                self.confirmed.add(tid)
+                dismiss = False
+            else:
+                # A false snapshot just before completion can arrive before
+                # the new unread flag. Keep it dark while the UI catches up.
+                dismiss = unread is False and (tid in self.confirmed or now - stamp >= 6)
+            if dismiss:
+                del self.pending[tid]
+                self.confirmed.discard(tid)
+                self.ui_unread.discard(tid)
+        return bool(self.confirmed)
+
+
+def select_lamp(sources, waiting):
+    codex = sources.get('codex', {})
+    if waiting:
+        return (codex.get('wait_color') if codex.get('healthy') else None) or True
+    if codex.get('healthy') and codex.get('unread_completion'):
+        return 'GREEN'
+    return False
 
 
 def combine_sources(sources):
@@ -377,7 +516,10 @@ def main(argv=None):
                     snapshots[name]={'healthy':False,'error':type(exc).__name__,'readiness':'error',
                                      'motor':'STOP','light':False,'working_threads':[],
                                      'waiting_threads':[],'pending_questions':0}
-            command,light=combine_sources(snapshots)
+            command,waiting=combine_sources(snapshots)
+            lamp=waiting if is_windows() else select_lamp(snapshots,waiting)
+            light=bool(lamp)
+            light_mode=lamp if isinstance(lamp,str) else ('ON' if lamp else 'OFF')
             state=json.dumps(snapshots,sort_keys=True)
             if state!=previous:
                 log(f'SOURCES {state}; motor={command}; light={light}')
@@ -387,10 +529,10 @@ def main(argv=None):
                     print(json.dumps({'motor':command,'light':light,'sources':snapshots}));return
             else:
                 if not args.dry_run:
-                    flowers.send(command,light)
+                    flowers.send(command,lamp)
                 if now-last_status>=1:
                     status={'updated_at':now,'launch_id':args.launch_id,'source':args.source,
-                            'sources':snapshots,'motor':command,'light':light,'dry_run':args.dry_run,
+                            'sources':snapshots,'motor':command,'light':light,'light_mode':light_mode,'dry_run':args.dry_run,
                             **flowers.status()}
                     try:
                         publish_status(args.status_file, status)

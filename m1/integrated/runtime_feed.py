@@ -20,7 +20,7 @@ import uuid
 
 
 WATCH_FIELDS = {"id", "hostId", "parentThreadId", "threadSource", "source",
-                "threadRuntimeStatus", "requests", "latestReasoningEffort"}
+                "threadRuntimeStatus", "requests", "latestReasoningEffort", "hasUnreadTurn"}
 VALID_STATUS = {"active", "idle", "notLoaded", "systemError"}
 VALID_FLAGS = {"waitingOnApproval", "waitingOnUserInput"}
 
@@ -115,6 +115,14 @@ def normalize_metadata(thread_id, state, observed_at):
                   if k in request and isinstance(request[k], (str, int))}
         params = request.get("params")
         if isinstance(params, dict):
+            if request.get("method") == "item/tool/requestUserInput":
+                questions = params.get("questions")
+                if isinstance(questions, list):
+                    record["has_options"] = any(
+                        isinstance(q, dict) and isinstance(q.get("options"), list)
+                        and any(isinstance(opt, dict) and opt.get("label")
+                                for opt in q["options"])
+                        for q in questions)
             for k in ("threadId", "turnId", "itemId"):
                 if isinstance(params.get(k), (str, int)):
                     record[k] = params[k]
@@ -122,6 +130,7 @@ def normalize_metadata(thread_id, state, observed_at):
     parent = state.get("parentThreadId")
     return {"thread_id": thread_id, "host_id": state.get("hostId", "local"),
             "parent_thread_id": parent, "runtime_status": normalized_status,
+            "unread": state.get("hasUnreadTurn") if type(state.get("hasUnreadTurn")) is bool else None,
             "requests": requests, "observed_at": observed_at,
             "owner_found": True, "archived": False,
             "latest_reasoning_effort": state.get("latestReasoningEffort")}
@@ -310,6 +319,15 @@ class DesktopRuntimeFeed:
         params = message.get("params", {})
         tid = params.get("conversationId")
         if tid not in targets or params.get("hostId", "local") != "local":
+            return
+        if message.get("method") == "thread-read-state-changed":
+            unread = params.get("hasUnreadTurn")
+            if (tid in self._states and type(unread) is bool
+                    and message.get("sourceClientId") == self._owners.get(tid)):
+                self._states[tid]["hasUnreadTurn"] = unread
+                with self._lock:
+                    if tid in self._threads:
+                        self._threads[tid]["unread"] = unread
             return
         if message.get("method") == "thread-archived":
             if message.get("sourceClientId") != self._owners.get(tid):

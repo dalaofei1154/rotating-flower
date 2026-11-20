@@ -5,6 +5,13 @@
 constexpr uint8_t ledR=0, ledG=1, ledB=3;
 bool ledReady=false, attention=false;
 uint32_t ledHeartbeat=0, ledEpoch=0, lastLedUpdate=0;
+constexpr uint32_t kBreathPeriodMs = 4000;
+enum class LightMode { Off, Green, Red, Yellow, Blue, DoneA, DoneB, SteadyGreen };
+LightMode lightMode = LightMode::Off;
+
+bool completionPulse() {
+  return lightMode == LightMode::DoneA || lightMode == LightMode::DoneB;
+}
 void ledColor(uint8_t r,uint8_t g,uint8_t b) {
   if(ledReady) {ledcWrite(ledR,r);ledcWrite(ledG,g);ledcWrite(ledB,b);}
 }
@@ -17,14 +24,38 @@ void setupLight() {
 }
 void updateLight() {
   uint32_t now=millis();
-  if(attention && now-ledHeartbeat>=6000) {
+  if (attention && completionPulse() && now - ledEpoch >= kBreathPeriodMs) {
+    attention = false;
+    ledColor(0,0,0);
+    Serial.println("DONE_PULSE_END");
+  } else if(attention && now-ledHeartbeat>=6000) {
     attention=false;ledColor(0,0,0);Serial.println("ATTENTION_TIMEOUT");
   }
   if(!attention || now-lastLedUpdate<16) return;
   lastLedUpdate=now;
-  float wave=.5f-.5f*cosf(6.283185307f*((now-ledEpoch)%4000)/4000.f);
-  float level=.15f+.85f*wave*wave;
-  ledColor(lroundf(60*level),lroundf(35*level),0);
+  if (lightMode == LightMode::SteadyGreen) {
+    ledColor(0,255,0);
+    return;
+  }
+  const float phase = float((now - ledEpoch) % kBreathPeriodMs) / kBreathPeriodMs;
+  const float wave = 0.5f - 0.5f * cosf(6.283185307f * phase);
+  const uint8_t level = lroundf(25 + 230 * wave);
+  const bool red = lightMode == LightMode::Red || lightMode == LightMode::Yellow;
+  const bool green = lightMode == LightMode::Green || completionPulse() || lightMode == LightMode::Yellow;
+  // Balance the green emitter against red through the installed diffuser.
+  const uint8_t greenLevel = lightMode == LightMode::Yellow ? (level + 1) / 3 : level;
+  ledColor(red ? level : 0, green ? greenLevel : 0, lightMode == LightMode::Blue ? level : 0);
+}
+
+void startLight(LightMode next, const char* reply) {
+  const uint32_t now = millis();
+  ledHeartbeat = now;
+  // Heartbeats must neither restart a breath nor replay a finished one-shot.
+  if (lightMode == next && (attention || completionPulse())) return;
+  lightMode = next;
+  ledEpoch = now;
+  attention = true;
+  Serial.println(reply);
 }
 // ESP32-C3 SuperMini + ULN2003 + 28BYJ-48 (5 V).
 // GPIO4/5/6/7 -> IN1/IN2/IN3/IN4; board 5V/G -> driver +/-.
@@ -78,15 +109,31 @@ void runAt(uint8_t requestedSpeed, uint32_t intervalUs, const char* response) {
 void handleCommand() {
   command[commandLength] = '\0';
   if (strcmp(command,"ATTENTION ON")==0) {
-    if(!attention) {ledEpoch=millis();Serial.println("ATTENTION_ON");}
-    attention=true;ledHeartbeat=millis();
+    startLight(LightMode::Green, "ATTENTION_ON");
+  } else if (strcmp(command,"ATTENTION STEADY GREEN")==0) {
+    startLight(LightMode::SteadyGreen, "ATTENTION_STEADY_GREEN");
+  } else if (strcmp(command,"ATTENTION RED")==0) {
+    startLight(LightMode::Red, "ATTENTION_RED");
+  } else if (strcmp(command,"ATTENTION YELLOW")==0) {
+    startLight(LightMode::Yellow, "ATTENTION_YELLOW");
+  } else if (strcmp(command,"ATTENTION BLUE")==0) {
+    startLight(LightMode::Blue, "ATTENTION_BLUE");
+  } else if (strcmp(command,"ATTENTION DONE A")==0) {
+    startLight(LightMode::DoneA, "DONE_PULSE_START");
+  } else if (strcmp(command,"ATTENTION DONE B")==0) {
+    startLight(LightMode::DoneB, "DONE_PULSE_START");
   } else if (strcmp(command,"ATTENTION OFF")==0) {
     if(attention) Serial.println("ATTENTION_OFF");
-    attention=false;ledColor(0,0,0);
+    attention=false;lightMode=LightMode::Off;ledColor(0,0,0);
   } else if (strcmp(command,"DEVICE INFO")==0) {
+    Serial.println("FLOWER_STEADY_GREEN_V1");
+    Serial.println("FLOWER_COLOR_V1");
     Serial.printf("FLOWER_COMBINED_V1 PWM=%s MOTOR_PINS=4,5,6,7 LED_PINS=0,1,3\n",ledReady?"OK":"FAIL");
   } else if (strcmp(command,"LED STATUS")==0) {
     Serial.printf("LED_STATE=%s PWM=%s\n",attention?"ON":"OFF",ledReady?"OK":"FAIL");
+  } else if (strcmp(command,"COLOR STATUS")==0) {
+    const char* names[] = {"OFF", "GREEN", "RED", "YELLOW", "BLUE", "GREEN", "GREEN", "GREEN"};
+    Serial.printf("COLOR=%s\n", attention ? names[static_cast<uint8_t>(lightMode)] : "OFF");
   } else if (strcmp(command, "PING") == 0) {
     Serial.println("PONG");
   } else if (strcmp(command, "RUN LOW") == 0) {

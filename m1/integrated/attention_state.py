@@ -28,7 +28,7 @@ _START = '<send_user_message_question_reply>'
 _END = '</send_user_message_question_reply>'
 _TOOL = 'request_user_input_async'
 _MARKERS = (b'request_user_input_async', b'send_user_message_question_reply',
-            b'task_started', b'turn_aborted', b'function_call_output', b'"role"')
+            b'task_started', b'task_complete', b'turn_aborted', b'function_call_output', b'"role"')
 _MAX_LINE = 8_000_000
 _CACHE_VERSION = 1
 
@@ -186,6 +186,7 @@ class _Pending:
     timestamp: float
     path: Path
     turn: str | None
+    has_options: bool = False
 
 
 class AttentionAdapter:
@@ -218,6 +219,9 @@ class AttentionAdapter:
         self.resolved: dict[tuple[str, str, int], float] = {}
         self.aborted: dict[tuple[str, str | None], float] = {}
         self.closed_sessions: dict[str, float] = {}
+        self._completion_floor = None
+        self._recent_completions = {}
+        self.finished_turns = []
         self._dirty = False
         self._last_state = (False, 0)
         if self.state_path is not None and self.state_path.exists():
@@ -236,12 +240,17 @@ class AttentionAdapter:
         if (not isinstance(session, str) or not session or identity is None
                 or not _valid_time(stamp) or turn is not None and not isinstance(turn, str)):
             raise ValueError('Invalid pending seed metadata')
-        self.pending[(session, *identity)] = _Pending(stamp, self.root, turn)
+        self.pending[(session, *identity)] = _Pending(stamp, self.root, turn, item.get('has_options') is True)
         self._dirty = True
+
+    @property
+    def completions(self):
+        return len(self.finished_turns)
 
     def pending_metadata(self) -> list[dict]:
         """Export only identities, timestamps and turn IDs for safe migration."""
-        return [dict(session_id=s, call_id=c, index=i, timestamp=p.timestamp, turn=p.turn)
+        return [dict(session_id=s, call_id=c, index=i, timestamp=p.timestamp, turn=p.turn,
+                     has_options=p.has_options)
                 for (s, c, i), p in sorted(self.pending.items())]
 
     def _load_state(self):
@@ -373,6 +382,14 @@ class AttentionAdapter:
         if stamp is None or stamp > now:
             return
         p = record['payload']
+        if record.get('type') == 'event_msg' and p.get('type') == 'task_complete':
+            turn_id = p.get('turn_id')
+            if (isinstance(turn_id, str) and turn_id and stamp >= self._completion_floor
+                    and (session, turn_id) not in self._recent_completions
+                    and (session, turn_id) not in self.aborted):
+                self._recent_completions[session, turn_id] = stamp
+                self.finished_turns.append((session, turn_id, stamp))
+            return
         if record.get('type') == 'event_msg' and p.get('type') == 'turn_aborted':
             abort_turn = p.get('turn_id')
             abort_turn = abort_turn if isinstance(abort_turn, str) else None
@@ -406,8 +423,12 @@ class AttentionAdapter:
                         or turn is not None and self.aborted.get((session, turn), 0) >= stamp):
                     continue
                 old = self.pending.get(key)
-                if old is None or stamp > old.timestamp:
-                    self.pending[key] = _Pending(stamp, path, turn)
+                options = question.get('options')
+                has_options = isinstance(options, list) and any(
+                    isinstance(option, str) and option.strip() for option in options)
+                if old is None or stamp > old.timestamp or (
+                        stamp == old.timestamp and has_options and not old.has_options):
+                    self.pending[key] = _Pending(stamp, path, turn, has_options)
                     self._dirty = True
         elif p.get('type') == 'function_call_output':
             call = p.get('call_id')
@@ -468,6 +489,13 @@ class AttentionAdapter:
         now = time.time() if now is None else now
         if not _valid_time(now):
             raise ValueError('poll time must be finite and nonnegative')
+        # Replay cards across restarts, but never announce historical finishes.
+        # Advance the watermark after sleep so rotated files cannot replay old turns.
+        self._completion_floor = max(self._completion_floor if self._completion_floor is not None else now,
+                                     now - 30)
+        self._recent_completions = {k: t for k, t in self._recent_completions.items()
+                                    if t >= self._completion_floor}
+        self.finished_turns = []
         if self.start_timestamp is None:
             self.start_timestamp = now
             self._dirty = True

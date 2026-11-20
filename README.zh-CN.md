@@ -1,4 +1,6 @@
 <p align="center">
+
+**Mac 公开预览** · Codex 支持红色审批、黄色打字、蓝色选项和绿色未读完成提醒。[下载与固件说明](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1)。其他 AI Agent 软件的四色提醒会逐步适配。
   <img src="docs/media/flower-mark.svg" width="64" height="64" alt="旋转花标记">
 </p>
 

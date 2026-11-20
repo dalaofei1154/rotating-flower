@@ -1,4 +1,6 @@
 <div align="center">
+
+**Mac preview** · Codex now signals approvals in red, text replies in yellow, choices in blue, and unread completions in steady green while another chat is working. [Download and firmware instructions](https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1). Four-color support for other AI agent apps is planned incrementally.
   <img src="docs/media/flower-mark.svg" width="64" alt="Rotating Flower" />
   <h1>Rotating Flower</h1>
   <p><strong>A little flower that moves with your AI.</strong></p>

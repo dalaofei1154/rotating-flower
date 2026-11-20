@@ -11,7 +11,7 @@ import tempfile
 import zipfile
 
 VERSION = "0.7.0"
-NAME = f"RotatingFlower-Mac-v{VERSION}"
+NAME = f"RotatingFlower-Mac-v{VERSION}-Codex-Colors-Preview.1"
 PYTHON_SHA256 = "fdf98aad59d6fb99a0fc42a0392956bd7f246793003c1789b798f20e38b8ae75"
 PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.13.12%2B20260211-aarch64-apple-darwin-install_only_stripped.tar.gz"
 RUNTIME_FILES = ("integrated_setup.py", "integrated_install.sh", "dsh_setup.py",
@@ -22,7 +22,11 @@ BRIDGE_FILES = ("integrated_bridge.py", "attention_state.py", "motor_bridge_base
                 "claude_process.py", "source_config.py", "platform_support.py",
                 "serial_transport.py", "windows_ipc.py")
 
-GUIDE = """小花 · Mac 统一安装
+GUIDE = """小花 · Mac Codex 四色公开预览版
+
+Codex 审批亮红灯，打字回答亮黄灯，选项亮蓝灯。
+一个聊天完成后，只要结果未读且其他聊天还在工作，绿灯就常亮。
+交互提醒优先；读完结果灭绿灯。旧组合固件仍可使用普通提醒。
 
 1. 用 USB 数据线连接已经烧录好的小花。
 2. 解压后双击「安装小花.command」，弹出的窗口会自动安装，不用输入命令。
