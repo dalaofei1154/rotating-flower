@@ -18,6 +18,9 @@
 
 一朵通过 USB 连接 Mac 的桌面小花。AI 工作时，花盘跟着转；需要你回答时，小灯会亮起来。你可以先忙别的，抬头看看它。
 
+<p align="center"><strong><a href="https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1">下载 Mac 公开预览版 · Codex 四色提醒</a></strong></p>
+<p align="center"><a href="https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1"><img src="docs/media/codex-four-colors-preview.jpg" alt="小猫旋转花实拍：红灯等审批、黄灯等打字、蓝灯等选择、绿灯常亮表示其他聊天仍在运行时有未读完成结果" width="480" /></a></p>
+
 <a id="watch"></a>
 
 ## 看看小花怎么工作

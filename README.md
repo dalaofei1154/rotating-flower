@@ -7,6 +7,9 @@
   <p><a href="#watch">Watch</a> · <a href="#start">Get started</a> · <a href="#compatibility">Supported apps</a> · <a href="#models">Models</a> · <a href="#faq">FAQ</a></p>
 </div>
 
+<p align="center"><strong><a href="https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1">Download the Mac preview · Codex four-color reminders</a></strong></p>
+<p align="center"><a href="https://github.com/dalaofei1154/rotating-flower/releases/tag/v0.7.0-mac-codex-colors-preview.1"><img src="docs/media/codex-four-colors-preview.jpg" alt="Rotating Flower on a desk and four close-ups: red for approval, yellow for typing, blue for choices, steady green for an unread result while another chat is working" width="480" /></a></p>
+
 <a id="watch"></a>
 ## Meet the flower
 
